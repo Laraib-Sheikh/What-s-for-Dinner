@@ -1,14 +1,18 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
+import { neon } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";
 
-const connectionString = (process.env.DATABASE_URL || "").replace(
-  /([&?])channel_binding=require&?/g,
-  "$1"
-).replace(/[?&]$/, "");
-const adapter = new PrismaNeon({ connectionString });
+const rawUrl = process.env.DATABASE_URL || "";
+const connectionString = rawUrl
+  .replace(/[&?]channel_binding=[^&]*/g, "")
+  .replace(/\?&/, "?")
+  .replace(/[?&]$/, "");
+
+const sql = neon(connectionString);
+const adapter = new PrismaNeon(sql);
 const prisma = new PrismaClient({ adapter });
 
 const ingredients = [
