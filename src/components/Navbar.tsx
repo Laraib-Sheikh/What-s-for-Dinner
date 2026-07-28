@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   ChefHat, ShoppingBasket, Calendar, Heart, BookOpen, User, LogOut, LogIn,
-  ShoppingCart, Shield, Leaf, Upload,
+  ShoppingCart, Shield, Leaf,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,15 +58,6 @@ export function Navbar() {
           )}
 
           <div className="flex items-center gap-1 shrink-0">
-            {session && (
-              <Link
-                href="/recipes/submit"
-                className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100"
-                title="Submit recipe"
-              >
-                <Upload className="w-4 h-4" />
-              </Link>
-            )}
             {isAdmin && (
               <Link
                 href="/admin"
