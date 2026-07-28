@@ -1,6 +1,5 @@
 import { config } from "dotenv";
 import { defineConfig } from "prisma/config";
-import { PrismaPg } from "@prisma/adapter-pg";
 
 config({ path: ".env.local" });
 config({ path: ".env" });
@@ -18,6 +17,5 @@ export default defineConfig({
   },
   datasource: {
     url: connectionString,
-    adapter: () => new PrismaPg({ connectionString }),
   },
 });
