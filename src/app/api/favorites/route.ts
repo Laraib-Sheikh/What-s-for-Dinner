@@ -1,0 +1,67 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+export async function GET() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const favorites = await prisma.favorite.findMany({
+    where: { userId: session.user.id },
+    include: {
+      recipe: {
+        include: {
+          recipeIngredients: {
+            include: { ingredient: true },
+            where: { isOptional: false },
+          },
+        },
+      },
+    },
+    orderBy: { savedAt: "desc" },
+  });
+
+  const pantryItems = await prisma.pantryItem.findMany({
+    where: { userId: session.user.id },
+    select: { ingredientId: true },
+  });
+  const ownedIds = new Set(pantryItems.map((p) => p.ingredientId));
+
+  const result = favorites.map((f) => {
+    const required = f.recipe.recipeIngredients;
+    const owned = required.filter((ri) => ownedIds.has(ri.ingredientId));
+    const matchScore =
+      required.length === 0 ? 100 : Math.round((owned.length / required.length) * 100);
+    return { ...f.recipe, savedAt: f.savedAt, matchScore, isFavorite: true };
+  });
+
+  return NextResponse.json(result);
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { recipeId } = await req.json();
+
+  const existing = await prisma.favorite.findUnique({
+    where: { userId_recipeId: { userId: session.user.id, recipeId } },
+  });
+
+  if (existing) {
+    await prisma.favorite.delete({
+      where: { userId_recipeId: { userId: session.user.id, recipeId } },
+    });
+    return NextResponse.json({ favorited: false });
+  }
+
+  await prisma.favorite.create({
+    data: { userId: session.user.id, recipeId },
+  });
+  return NextResponse.json({ favorited: true });
+}
