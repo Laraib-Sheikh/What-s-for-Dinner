@@ -1,7 +1,7 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { neon } from "@neondatabase/serverless";
+import { Pool } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";
 
@@ -11,8 +11,8 @@ const connectionString = rawUrl
   .replace(/\?&/, "?")
   .replace(/[?&]$/, "");
 
-const sql = neon(connectionString);
-const adapter = new PrismaNeon(sql);
+const pool = new Pool({ connectionString });
+const adapter = new PrismaNeon(pool);
 const prisma = new PrismaClient({ adapter });
 
 const ingredients = [

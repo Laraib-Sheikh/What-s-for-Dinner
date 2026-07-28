@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import { Pool } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";
 
@@ -12,14 +12,14 @@ function createPrismaClient() {
     throw new Error("DATABASE_URL environment variable is not set.");
   }
 
-  // Strip channel_binding param — not supported by Neon's HTTP driver
+  // Strip channel_binding param — not supported by the serverless driver
   const connectionString = rawUrl
     .replace(/[&?]channel_binding=[^&]*/g, "")
     .replace(/\?&/, "?")
     .replace(/[?&]$/, "");
 
-  const sql = neon(connectionString);
-  const adapter = new PrismaNeon(sql);
+  const pool = new Pool({ connectionString });
+  const adapter = new PrismaNeon(pool);
 
   return new PrismaClient({
     adapter,
