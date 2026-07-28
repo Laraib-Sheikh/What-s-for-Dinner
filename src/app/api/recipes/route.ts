@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions);
   const { searchParams } = new URL(req.url);
 
@@ -70,4 +71,14 @@ export async function GET(req: NextRequest) {
   scored.sort((a, b) => b.matchScore - a.matchScore);
 
   return NextResponse.json(scored);
+  } catch (error) {
+    console.error("GET /api/recipes failed:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to load recipes",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    );
+  }
 }

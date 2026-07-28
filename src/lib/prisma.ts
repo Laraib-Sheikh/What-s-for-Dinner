@@ -1,19 +1,24 @@
-import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+function getConnectionString() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
     throw new Error(
-      "DATABASE_URL is not set. Please add it to your .env.local file.\n" +
-        "Get a free PostgreSQL database at https://neon.tech or https://supabase.com"
+      "DATABASE_URL is not set. Add it in Vercel Project Settings → Environment Variables."
     );
   }
-  const adapter = new PrismaPg({ connectionString });
+  // channel_binding=require often breaks Node drivers on serverless
+  return url.replace(/([&?])channel_binding=require&?/g, "$1").replace(/[?&]$/, "");
+}
+
+function createPrismaClient() {
+  const connectionString = getConnectionString();
+  const adapter = new PrismaNeon({ connectionString });
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],

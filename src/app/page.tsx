@@ -52,9 +52,14 @@ export default function HomePage() {
   if (dietaryTag) params.set("dietaryTag", dietaryTag);
   if (maxTime) params.set("maxTime", maxTime);
 
-  const { data: recipes = [], isLoading } = useQuery<RecipeWithMatch[]>({
+  const { data: recipes = [], isLoading, isError } = useQuery<RecipeWithMatch[]>({
     queryKey: ["recipes", search, cuisine, mealType, dietaryTag, maxTime],
-    queryFn: () => fetch(`/api/recipes?${params}`).then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch(`/api/recipes?${params}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || data?.error || "Failed to load recipes");
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const almostRecipes = recipes.filter((r) => r.missingCount === 1 || r.missingCount === 2);
@@ -247,6 +252,14 @@ export default function HomePage() {
               </div>
             </div>
           ))}
+        </div>
+      ) : isError ? (
+        <div className="text-center py-16">
+          <ChefHat className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-500">Couldn&apos;t load recipes</h3>
+          <p className="text-sm text-gray-400 mt-1">
+            Check that DATABASE_URL is set in your Vercel environment variables, then redeploy.
+          </p>
         </div>
       ) : displayed.length === 0 ? (
         <div className="text-center py-16">

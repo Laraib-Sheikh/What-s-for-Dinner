@@ -1,10 +1,14 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const connectionString = (process.env.DATABASE_URL || "").replace(
+  /([&?])channel_binding=require&?/g,
+  "$1"
+).replace(/[?&]$/, "");
+const adapter = new PrismaNeon({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 const ingredients = [
