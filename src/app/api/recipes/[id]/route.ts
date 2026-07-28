@@ -19,8 +19,15 @@ export async function GET(
     },
   });
 
-  if (!recipe) {
-    return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+  if (!recipe || (recipe.status !== "approved" && recipe.submittedBy !== session?.user?.id)) {
+    // Allow admins to preview any recipe
+    const role = (session?.user as { role?: string } | undefined)?.role;
+    if (recipe && role !== "admin" && role !== "moderator") {
+      return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+    }
+    if (!recipe) {
+      return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+    }
   }
 
   let ownedIds = new Set<string>();

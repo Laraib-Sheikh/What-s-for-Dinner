@@ -9,22 +9,28 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @default(cuid())
-  name                String?
-  email               String?   @unique
-  emailVerified       DateTime?
-  image               String?
-  dietaryPreferences  String[]  @default([])
-  allergies           String[]  @default([])
-  createdAt           DateTime  @default(now())
+  id                 String    @id @default(cuid())
+  name               String?
+  email              String?   @unique
+  emailVerified      DateTime?
+  image              String?
+  role               String    @default("user") // user | admin | moderator
+  suspendedAt        DateTime?
+  dietaryPreferences String[]  @default([])
+  allergies          String[]  @default([])
+  createdAt          DateTime  @default(now())
 
-  accounts        Account[]
-  sessions        Session[]
-  pantryItems     PantryItem[]
-  favorites       Favorite[]
-  cookLog         CookLog[]
-  mealPlanEntries MealPlanEntry[]
-  groceryItems    GroceryListItem[]
+  accounts          Account[]
+  sessions          Session[]
+  pantryItems       PantryItem[]
+  favorites         Favorite[]
+  cookLog           CookLog[]
+  mealPlanEntries   MealPlanEntry[]
+  groceryItems      GroceryListItem[]
+  shoppingLists     ShoppingList[]
+  reviews           RecipeReview[]
+  submittedRecipes  Recipe[]           @relation("SubmittedRecipes")
+  adminActions      AdminAction[]
 }
 
 model Account {
@@ -67,9 +73,10 @@ model Ingredient {
   name     String @unique
   category String @default("other")
 
-  pantryItems        PantryItem[]
-  recipeIngredients  RecipeIngredient[]
-  groceryItems       GroceryListItem[]
+  pantryItems       PantryItem[]
+  recipeIngredients RecipeIngredient[]
+  groceryItems      GroceryListItem[]
+  shoppingListItems ShoppingListItem[]
 }
 
 model PantryItem {
@@ -97,12 +104,20 @@ model Recipe {
   servings        Int      @default(4)
   dietaryTags     String[] @default([])
   instructions    Json     @default("[]")
+  status          String   @default("approved") // pending | approved | rejected
+  submittedBy     String?
+  calories        Int?
+  proteinGrams    Float?
+  carbsGrams      Float?
+  fatGrams        Float?
   createdAt       DateTime @default(now())
 
+  submitter         User?              @relation("SubmittedRecipes", fields: [submittedBy], references: [id], onDelete: SetNull)
   recipeIngredients RecipeIngredient[]
   favorites         Favorite[]
   cookLog           CookLog[]
   mealPlanEntries   MealPlanEntry[]
+  reviews           RecipeReview[]
 }
 
 model RecipeIngredient {
@@ -150,6 +165,7 @@ model MealPlanEntry {
   recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 }
 
+// Legacy single-list grocery (kept for migration; prefer ShoppingList*)
 model GroceryListItem {
   id           String  @id @default(cuid())
   userId       String
@@ -160,4 +176,58 @@ model GroceryListItem {
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+}
+
+model ShoppingList {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String   @default("This week")
+  shareToken String?  @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items ShoppingListItem[]
+}
+
+model ShoppingListItem {
+  id              String  @id @default(cuid())
+  shoppingListId  String
+  ingredientId    String?
+  customItemName  String?
+  quantity        String?
+  isChecked       Boolean @default(false)
+  category        String  @default("other")
+  source          String  @default("manual") // meal_plan | manual
+  pantryHint      String? // null | have_some | in_pantry
+
+  shoppingList ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient?  @relation(fields: [ingredientId], references: [id])
+}
+
+model RecipeReview {
+  id        String   @id @default(cuid())
+  recipeId  String
+  userId    String
+  rating    Int
+  comment   String?
+  flagged   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+}
+
+model AdminAction {
+  id         String   @id @default(cuid())
+  adminId    String
+  actionType String
+  targetId   String?
+  targetType String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
 }

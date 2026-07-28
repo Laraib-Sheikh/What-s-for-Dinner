@@ -72,14 +72,14 @@ export default function MealPlanPage() {
 
   const generateGrocery = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/grocery", {
+      const res = await fetch("/api/shopping-lists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate" }),
       });
       return res.json();
     },
-    onSuccess: () => router.push("/grocery"),
+    onSuccess: () => router.push("/shopping"),
   });
 
   const getEntriesForSlot = (date: Date, slot: string) =>

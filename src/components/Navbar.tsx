@@ -3,56 +3,90 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { ChefHat, ShoppingBasket, Calendar, Heart, BookOpen, User, LogOut, LogIn } from "lucide-react";
+import {
+  ChefHat, ShoppingBasket, Calendar, Heart, BookOpen, User, LogOut, LogIn,
+  ShoppingCart, Shield, Leaf, Upload,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
   { href: "/", label: "Recipes", icon: BookOpen },
   { href: "/pantry", label: "Pantry", icon: ShoppingBasket },
   { href: "/meal-plan", label: "Meal Plan", icon: Calendar },
-  { href: "/grocery", label: "Grocery List", icon: ShoppingBasket },
+  { href: "/shopping", label: "Shopping", icon: ShoppingCart },
+  { href: "/leftovers", label: "Leftovers", icon: Leaf },
   { href: "/favorites", label: "Favorites", icon: Heart },
 ];
 
 export function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin" || session?.user?.role === "moderator";
+  const isShared = pathname.startsWith("/shared/");
+  const isAdminPage = pathname.startsWith("/admin");
+
+  if (isShared) return null;
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-orange-600">
+        <div className="flex items-center justify-between h-16 gap-2">
+          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-orange-600 shrink-0">
             <ChefHat className="w-7 h-7" />
             <span className="hidden sm:block">What&apos;s for Dinner</span>
             <span className="sm:hidden">WFD</span>
           </Link>
 
-          <div className="flex items-center gap-1">
-            {navLinks.map(({ href, label, icon: Icon }) => (
+          {!isAdminPage && (
+            <div className="flex items-center gap-0.5 overflow-x-auto max-w-[50vw] sm:max-w-none">
+              {navLinks.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors shrink-0",
+                    pathname === href
+                      ? "bg-orange-50 text-orange-700"
+                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="hidden lg:block">{label}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-1 shrink-0">
+            {session && (
               <Link
-                key={href}
-                href={href}
+                href="/recipes/submit"
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100"
+                title="Submit recipe"
+              >
+                <Upload className="w-4 h-4" />
+              </Link>
+            )}
+            {isAdmin && (
+              <Link
+                href="/admin"
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                  pathname === href
+                  "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium",
+                  isAdminPage
                     ? "bg-orange-50 text-orange-700"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    : "text-gray-600 hover:bg-gray-100"
                 )}
               >
-                <Icon className="w-4 h-4" />
-                <span className="hidden md:block">{label}</span>
+                <Shield className="w-4 h-4" />
+                <span className="hidden md:block">Admin</span>
               </Link>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
+            )}
             {session ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 <Link
                   href="/profile"
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium",
+                    "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium",
                     pathname === "/profile"
                       ? "bg-orange-50 text-orange-700"
                       : "text-gray-600 hover:bg-gray-100"
@@ -72,10 +106,9 @@ export function Navbar() {
                 </Link>
                 <button
                   onClick={() => signOut({ callbackUrl: "/" })}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100"
+                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100"
                 >
                   <LogOut className="w-4 h-4" />
-                  <span className="hidden md:block">Sign out</span>
                 </button>
               </div>
             ) : (

@@ -23,7 +23,9 @@ export async function GET(req: NextRequest) {
     const maxTime = searchParams.get("maxTime");
     const search = searchParams.get("search");
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = {
+      status: "approved",
+    };
 
     if (cuisine) where.cuisine = cuisine;
     if (mealType) where.mealType = mealType;

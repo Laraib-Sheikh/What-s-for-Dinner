@@ -6,10 +6,12 @@ import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Clock, Users, Heart, ChefHat, CheckCircle, XCircle,
-  ArrowLeft, Star, Sparkles, Plus, Minus, BookOpen
+  ArrowLeft, Star, Sparkles, Plus, Minus, BookOpen, Flame
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { CookMode } from "@/components/CookMode";
+import { RecipeReviews } from "@/components/RecipeReviews";
 import { formatCookTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +40,10 @@ interface RecipeDetail {
   servings: number;
   dietaryTags: string[];
   instructions: Instruction[];
+  calories?: number | null;
+  proteinGrams?: number | null;
+  carbsGrams?: number | null;
+  fatGrams?: number | null;
   recipeIngredients: RecipeIngredient[];
   matchScore: number;
   isFavorite: boolean;
@@ -60,6 +66,8 @@ export default function RecipeDetailPage() {
   const [loadingSub, setLoadingSub] = useState<string | null>(null);
   const [rating, setRating] = useState(0);
   const [cooked, setCooked] = useState(false);
+  const [cookMode, setCookMode] = useState(false);
+  const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
 
   const { data: recipe, isLoading } = useQuery<RecipeDetail>({
     queryKey: ["recipe", id],
@@ -165,6 +173,16 @@ export default function RecipeDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {cookMode && recipe.instructions.length > 0 && (
+        <CookMode
+          title={recipe.title}
+          instructions={recipe.instructions}
+          cookTimeMinutes={recipe.cookTimeMinutes}
+          onClose={() => setCookMode(false)}
+          onComplete={() => setCooked(true)}
+        />
+      )}
+
       <button
         onClick={() => router.back()}
         className="flex items-center gap-2 text-gray-500 hover:text-gray-800 mb-6 transition-colors"
@@ -215,24 +233,32 @@ export default function RecipeDetailPage() {
           )}
         </div>
 
-        {session && (
-          <div className="flex gap-2 shrink-0">
-            <Button
-              variant="outline"
-              onClick={() => toggleFavorite.mutate()}
-              loading={toggleFavorite.isPending}
-            >
-              <Heart
-                className={cn("w-4 h-4", recipe.isFavorite ? "fill-red-500 text-red-500" : "")}
-              />
-              {recipe.isFavorite ? "Saved" : "Save"}
+        <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+          {recipe.instructions.length > 0 && (
+            <Button onClick={() => setCookMode(true)}>
+              <Flame className="w-4 h-4" />
+              Cook Mode
             </Button>
-            <Button variant="secondary" onClick={() => addToMealPlan.mutate()} loading={addToMealPlan.isPending}>
-              <BookOpen className="w-4 h-4" />
-              Plan
-            </Button>
-          </div>
-        )}
+          )}
+          {session && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => toggleFavorite.mutate()}
+                loading={toggleFavorite.isPending}
+              >
+                <Heart
+                  className={cn("w-4 h-4", recipe.isFavorite ? "fill-red-500 text-red-500" : "")}
+                />
+                {recipe.isFavorite ? "Saved" : "Save"}
+              </Button>
+              <Button variant="secondary" onClick={() => addToMealPlan.mutate()} loading={addToMealPlan.isPending}>
+                <BookOpen className="w-4 h-4" />
+                Plan
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Meta */}
@@ -373,13 +399,13 @@ export default function RecipeDetailPage() {
                   className="w-full"
                   onClick={async () => {
                     for (const mi of missing) {
-                      await fetch("/api/grocery", {
+                      await fetch("/api/shopping-lists", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "add", ingredientName: mi.ingredient.name }),
+                        body: JSON.stringify({ action: "add", name: mi.ingredient.name }),
                       });
                     }
-                    router.push("/grocery");
+                    router.push("/shopping");
                   }}
                 >
                   <Plus className="w-4 h-4" />
@@ -429,25 +455,102 @@ export default function RecipeDetailPage() {
 
         {/* Instructions */}
         <div className="lg:col-span-3">
-          <h2 className="font-semibold text-gray-900 text-lg mb-4">Instructions</h2>
-          <div className="space-y-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-900 text-lg">Instructions</h2>
+            {recipe.instructions.length > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400">
+                  {checkedSteps.size}/{recipe.instructions.length} done
+                </span>
+                <button
+                  onClick={() => setCookMode(true)}
+                  className="text-xs font-semibold text-orange-600 hover:text-orange-700 flex items-center gap-1"
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  Start Cook Mode
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="space-y-3">
             {recipe.instructions.length === 0 ? (
               <p className="text-gray-400 text-sm">No instructions provided for this recipe.</p>
             ) : (
-              recipe.instructions.map((step, i) => (
-                <div key={i} className="flex gap-4">
-                  <div className="shrink-0 w-8 h-8 rounded-full bg-orange-500 text-white text-sm font-bold flex items-center justify-center">
-                    {step.step_number || i + 1}
-                  </div>
-                  <div className="flex-1 pt-1">
-                    <p className="text-gray-700 leading-relaxed">{step.text}</p>
-                  </div>
-                </div>
-              ))
+              recipe.instructions.map((step, i) => {
+                const isChecked = checkedSteps.has(i);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setCheckedSteps((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(i)) next.delete(i);
+                        else next.add(i);
+                        return next;
+                      });
+                    }}
+                    className={cn(
+                      "w-full flex gap-4 text-left p-3 rounded-xl border transition-all",
+                      isChecked
+                        ? "bg-green-50 border-green-200"
+                        : "bg-white border-gray-100 hover:border-orange-200 hover:bg-orange-50/40"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "shrink-0 w-8 h-8 rounded-full text-sm font-bold flex items-center justify-center transition-colors",
+                        isChecked
+                          ? "bg-green-500 text-white"
+                          : "bg-orange-500 text-white"
+                      )}
+                    >
+                      {isChecked ? <CheckCircle className="w-4 h-4" /> : step.step_number || i + 1}
+                    </div>
+                    <div className="flex-1 pt-1">
+                      <p
+                        className={cn(
+                          "leading-relaxed transition-colors",
+                          isChecked ? "text-gray-400 line-through" : "text-gray-700"
+                        )}
+                      >
+                        {step.text}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
       </div>
+
+      {(recipe.calories || recipe.proteinGrams || recipe.carbsGrams || recipe.fatGrams) && (
+        <div className="mt-6 flex flex-wrap gap-3 text-sm">
+          {recipe.calories != null && (
+            <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700">
+              {recipe.calories} kcal
+            </span>
+          )}
+          {recipe.proteinGrams != null && (
+            <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700">
+              P {recipe.proteinGrams}g
+            </span>
+          )}
+          {recipe.carbsGrams != null && (
+            <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700">
+              C {recipe.carbsGrams}g
+            </span>
+          )}
+          {recipe.fatGrams != null && (
+            <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700">
+              F {recipe.fatGrams}g
+            </span>
+          )}
+        </div>
+      )}
+
+      <RecipeReviews recipeId={recipe.id} />
     </div>
   );
 }

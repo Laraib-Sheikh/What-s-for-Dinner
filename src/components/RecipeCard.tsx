@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Heart, Clock, Users, ChefHat } from "lucide-react";
 import { Badge } from "./ui/Badge";
@@ -31,6 +32,7 @@ interface RecipeCardProps {
 export function RecipeCard({ recipe, showMatch = true }: RecipeCardProps) {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
+  const [heartPop, setHeartPop] = useState(false);
 
   const toggleFavorite = useMutation({
     mutationFn: async () => {
@@ -102,14 +104,19 @@ export function RecipeCard({ recipe, showMatch = true }: RecipeCardProps) {
 
           {session && (
             <button
-              onClick={() => toggleFavorite.mutate()}
+              onClick={() => {
+                setHeartPop(true);
+                setTimeout(() => setHeartPop(false), 350);
+                toggleFavorite.mutate();
+              }}
               className="shrink-0 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
               title={recipe.isFavorite ? "Remove from favorites" : "Save to favorites"}
             >
               <Heart
                 className={cn(
                   "w-4 h-4 transition-colors",
-                  recipe.isFavorite ? "fill-red-500 text-red-500" : "text-gray-400"
+                  recipe.isFavorite ? "fill-red-500 text-red-500" : "text-gray-400",
+                  heartPop && "animate-heart-pop"
                 )}
               />
             </button>

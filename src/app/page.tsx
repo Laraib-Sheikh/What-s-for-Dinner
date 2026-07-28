@@ -1,22 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { Search, Filter, ChefHat, Sparkles, SlidersHorizontal } from "lucide-react";
+import { Search, ChefHat, Sparkles, SlidersHorizontal, X } from "lucide-react";
 import { RecipeCard } from "@/components/RecipeCard";
-import { Input } from "@/components/ui/Input";
+import { TonightPick } from "@/components/TonightPick";
+import { ExpiryAlerts } from "@/components/ExpiryAlerts";
 import Link from "next/link";
 
-const CUISINES = ["", "italian", "asian", "mexican", "indian", "american", "mediterranean", "french"];
-const MEAL_TYPES = ["", "breakfast", "lunch", "dinner", "snack"];
-const DIETARY_TAGS = ["", "vegetarian", "vegan", "gluten-free", "dairy-free", "keto", "paleo"];
+const CUISINES = ["italian", "asian", "mexican", "indian", "american", "mediterranean", "french"];
+const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
+const DIETARY_TAGS = ["vegetarian", "vegan", "gluten-free", "dairy-free", "keto", "paleo"];
 const MAX_TIMES = [
-  { label: "Any time", value: "" },
-  { label: "Under 15 min", value: "15" },
-  { label: "Under 30 min", value: "30" },
-  { label: "Under 45 min", value: "45" },
-  { label: "Under 1 hour", value: "60" },
+  { label: "≤15 min", value: "15" },
+  { label: "≤30 min", value: "30" },
+  { label: "≤45 min", value: "45" },
+  { label: "≤1 hr", value: "60" },
 ];
 
 interface RecipeWithMatch {
@@ -35,25 +35,59 @@ interface RecipeWithMatch {
   isFavorite: boolean;
 }
 
+function useDebounced<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`filter-chip px-3 py-1.5 rounded-full text-xs font-medium border ${
+        active
+          ? "bg-orange-500 border-orange-500 text-white shadow-sm shadow-orange-500/30"
+          : "bg-white border-gray-200 text-gray-600 hover:border-orange-300 hover:text-orange-700"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function HomePage() {
   const { data: session } = useSession();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounced(search, 300);
   const [cuisine, setCuisine] = useState("");
   const [mealType, setMealType] = useState("");
   const [dietaryTag, setDietaryTag] = useState("");
   const [maxTime, setMaxTime] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState<"all" | "almost">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "almost" | "ready">("all");
 
   const params = new URLSearchParams();
-  if (search) params.set("search", search);
+  if (debouncedSearch) params.set("search", debouncedSearch);
   if (cuisine) params.set("cuisine", cuisine);
   if (mealType) params.set("mealType", mealType);
   if (dietaryTag) params.set("dietaryTag", dietaryTag);
   if (maxTime) params.set("maxTime", maxTime);
 
   const { data: recipes = [], isLoading, isError } = useQuery<RecipeWithMatch[]>({
-    queryKey: ["recipes", search, cuisine, mealType, dietaryTag, maxTime],
+    queryKey: ["recipes", debouncedSearch, cuisine, mealType, dietaryTag, maxTime],
     queryFn: async () => {
       const res = await fetch(`/api/recipes?${params}`);
       const data = await res.json();
@@ -63,7 +97,22 @@ export default function HomePage() {
   });
 
   const almostRecipes = recipes.filter((r) => r.missingCount === 1 || r.missingCount === 2);
-  const displayed = activeTab === "almost" ? almostRecipes : recipes;
+  const readyRecipes = recipes.filter((r) => r.matchScore >= 80);
+  const activeFilterCount = [cuisine, mealType, dietaryTag, maxTime].filter(Boolean).length;
+
+  const displayed =
+    activeTab === "almost"
+      ? almostRecipes
+      : activeTab === "ready"
+      ? readyRecipes
+      : recipes;
+
+  const clearFilters = () => {
+    setCuisine("");
+    setMealType("");
+    setDietaryTag("");
+    setMaxTime("");
+  };
 
   return (
     <div>
@@ -99,6 +148,25 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Logged-in welcome + surprise pick */}
+      {session && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Hey{session.user?.name ? `, ${session.user.name.split(" ")[0]}` : ""}
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {readyRecipes.length > 0
+                ? `${readyRecipes.length} recipes ready with what you have`
+                : "Add pantry items to unlock better matches"}
+            </p>
+          </div>
+          {recipes.length > 0 && <TonightPick recipes={recipes} />}
+        </div>
+      )}
+
+      <ExpiryAlerts />
+
       {/* Search & Filters */}
       <div className="mb-6 space-y-4">
         <div className="flex gap-3">
@@ -109,133 +177,159 @@ export default function HomePage() {
               placeholder="Search recipes..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white"
+              className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white"
             />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-gray-100 text-gray-400"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
-              showFilters || cuisine || mealType || dietaryTag || maxTime
+              showFilters || activeFilterCount > 0
                 ? "bg-orange-50 border-orange-300 text-orange-700"
                 : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
             }`}
           >
             <SlidersHorizontal className="w-4 h-4" />
             Filters
-            {(cuisine || mealType || dietaryTag || maxTime) && (
+            {activeFilterCount > 0 && (
               <span className="bg-orange-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                {[cuisine, mealType, dietaryTag, maxTime].filter(Boolean).length}
+                {activeFilterCount}
               </span>
             )}
           </button>
         </div>
 
+        {/* Quick meal-type chips always visible */}
+        <div className="flex flex-wrap gap-2">
+          {MEAL_TYPES.map((m) => (
+            <Chip
+              key={m}
+              active={mealType === m}
+              onClick={() => setMealType(mealType === m ? "" : m)}
+            >
+              <span className="capitalize">{m}</span>
+            </Chip>
+          ))}
+        </div>
+
         {showFilters && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-white rounded-xl border border-gray-200">
+          <div className="p-4 bg-white rounded-xl border border-gray-200 space-y-4 animate-slide-down">
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">Cuisine</label>
-              <select
-                value={cuisine}
-                onChange={(e) => setCuisine(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white capitalize"
-              >
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-medium text-gray-600">Cuisine</label>
+                {activeFilterCount > 0 && (
+                  <button onClick={clearFilters} className="text-xs text-orange-600 hover:underline">
+                    Clear all
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
                 {CUISINES.map((c) => (
-                  <option key={c} value={c} className="capitalize">
-                    {c || "All cuisines"}
-                  </option>
+                  <Chip key={c} active={cuisine === c} onClick={() => setCuisine(cuisine === c ? "" : c)}>
+                    <span className="capitalize">{c}</span>
+                  </Chip>
                 ))}
-              </select>
+              </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">Meal Type</label>
-              <select
-                value={mealType}
-                onChange={(e) => setMealType(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white capitalize"
-              >
-                {MEAL_TYPES.map((m) => (
-                  <option key={m} value={m} className="capitalize">
-                    {m || "All meals"}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">Diet</label>
-              <select
-                value={dietaryTag}
-                onChange={(e) => setDietaryTag(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white capitalize"
-              >
+              <label className="text-xs font-medium text-gray-600 mb-2 block">Diet</label>
+              <div className="flex flex-wrap gap-2">
                 {DIETARY_TAGS.map((d) => (
-                  <option key={d} value={d} className="capitalize">
-                    {d || "All diets"}
-                  </option>
+                  <Chip
+                    key={d}
+                    active={dietaryTag === d}
+                    onClick={() => setDietaryTag(dietaryTag === d ? "" : d)}
+                  >
+                    <span className="capitalize">{d}</span>
+                  </Chip>
                 ))}
-              </select>
+              </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">Cook Time</label>
-              <select
-                value={maxTime}
-                onChange={(e) => setMaxTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-              >
+              <label className="text-xs font-medium text-gray-600 mb-2 block">Cook time</label>
+              <div className="flex flex-wrap gap-2">
                 {MAX_TIMES.map((t) => (
-                  <option key={t.value} value={t.value}>
+                  <Chip
+                    key={t.value}
+                    active={maxTime === t.value}
+                    onClick={() => setMaxTime(maxTime === t.value ? "" : t.value)}
+                  >
                     {t.label}
-                  </option>
+                  </Chip>
                 ))}
-              </select>
+              </div>
             </div>
           </div>
         )}
       </div>
 
       {/* Tabs */}
-      {session && almostRecipes.length > 0 && (
-        <div className="flex gap-2 mb-6">
-          <button
-            onClick={() => setActiveTab("all")}
-            className={`px-5 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === "all"
-                ? "bg-orange-500 text-white"
-                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
-            }`}
-          >
-            All Recipes ({recipes.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("almost")}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === "almost"
-                ? "bg-blue-500 text-white"
-                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Almost There ({almostRecipes.length})
-          </button>
+      {session && recipes.length > 0 && (
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+          {(
+            [
+              { id: "all" as const, label: `All (${recipes.length})`, color: "orange" },
+              { id: "ready" as const, label: `Ready (${readyRecipes.length})`, color: "green" },
+              { id: "almost" as const, label: `Almost (${almostRecipes.length})`, color: "blue" },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`shrink-0 flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? tab.color === "green"
+                    ? "bg-green-500 text-white shadow-sm"
+                    : tab.color === "blue"
+                    ? "bg-blue-500 text-white shadow-sm"
+                    : "bg-orange-500 text-white shadow-sm"
+                  : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {tab.id === "almost" && <Sparkles className="w-3.5 h-3.5" />}
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
       {/* Stats bar for logged-in users */}
       {session && recipes.length > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-            <div className="text-2xl font-bold text-green-700">
-              {recipes.filter((r) => r.matchScore >= 80).length}
-            </div>
+          <button
+            onClick={() => setActiveTab("ready")}
+            className={`bg-green-50 border rounded-xl p-3 text-center transition-all hover:scale-[1.02] ${
+              activeTab === "ready" ? "border-green-400 ring-2 ring-green-200" : "border-green-200"
+            }`}
+          >
+            <div className="text-2xl font-bold text-green-700">{readyRecipes.length}</div>
             <div className="text-xs text-green-600">Ready to Cook</div>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+          </button>
+          <button
+            onClick={() => setActiveTab("almost")}
+            className={`bg-blue-50 border rounded-xl p-3 text-center transition-all hover:scale-[1.02] ${
+              activeTab === "almost" ? "border-blue-400 ring-2 ring-blue-200" : "border-blue-200"
+            }`}
+          >
             <div className="text-2xl font-bold text-blue-700">{almostRecipes.length}</div>
             <div className="text-xs text-blue-600">Almost There</div>
-          </div>
-          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-center">
+          </button>
+          <button
+            onClick={() => setActiveTab("all")}
+            className={`bg-orange-50 border rounded-xl p-3 text-center transition-all hover:scale-[1.02] ${
+              activeTab === "all" ? "border-orange-400 ring-2 ring-orange-200" : "border-orange-200"
+            }`}
+          >
             <div className="text-2xl font-bold text-orange-700">{recipes.length}</div>
             <div className="text-xs text-orange-600">Total Recipes</div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -270,11 +364,22 @@ export default function HomePage() {
               ? "Try adjusting your filters"
               : "Recipes will appear here once you add them"}
           </p>
+          {activeFilterCount > 0 && (
+            <button onClick={clearFilters} className="mt-4 text-sm text-orange-600 hover:underline">
+              Clear filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {displayed.map((recipe) => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
+          {displayed.map((recipe, i) => (
+            <div
+              key={recipe.id}
+              className="animate-card-in"
+              style={{ animationDelay: `${Math.min(i, 11) * 40}ms` }}
+            >
+              <RecipeCard recipe={recipe} />
+            </div>
           ))}
         </div>
       )}
