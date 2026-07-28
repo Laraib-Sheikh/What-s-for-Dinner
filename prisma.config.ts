@@ -1,7 +1,6 @@
 import { config } from "dotenv";
 import { defineConfig } from "prisma/config";
-import { Pool } from "@neondatabase/serverless";
-import { PrismaNeon } from "@prisma/adapter-neon";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 config({ path: ".env.local" });
 config({ path: ".env" });
@@ -19,6 +18,6 @@ export default defineConfig({
   },
   datasource: {
     url: connectionString,
-    adapter: () => new PrismaNeon(new Pool({ connectionString })),
+    adapter: () => new PrismaPg({ connectionString }),
   },
 });
