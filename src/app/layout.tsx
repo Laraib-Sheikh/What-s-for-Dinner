@@ -1,15 +1,24 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/providers/SessionProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
-import { Navbar } from "@/components/Navbar";
+import { AppShell } from "@/components/AppShell";
 
-const inter = Inter({ subsets: ["latin"] });
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-plus-jakarta",
+});
 
 export const metadata: Metadata = {
   title: "What's for Dinner — Fridge-to-Recipe Planner",
-  description: "Turn what's in your fridge into delicious meals. Smart recipe matching, meal planning, and AI-powered substitutions.",
+  description:
+    "Turn what's in your fridge into delicious meals. Smart recipe matching, meal planning, and AI-powered substitutions.",
+  icons: {
+    icon: [{ url: "/wfd-logo.png", type: "image/png" }],
+    apple: [{ url: "/wfd-logo.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({
@@ -19,13 +28,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-gray-50 min-h-screen`}>
+      <head>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className={`${plusJakarta.variable} ${plusJakarta.className} bg-oat-milk min-h-screen text-on-surface`}>
         <SessionProvider>
           <QueryProvider>
-            <Navbar />
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-              {children}
-            </main>
+            <AppShell>{children}</AppShell>
           </QueryProvider>
         </SessionProvider>
       </body>

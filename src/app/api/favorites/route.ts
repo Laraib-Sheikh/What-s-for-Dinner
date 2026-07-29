@@ -24,18 +24,54 @@ export async function GET() {
     orderBy: { savedAt: "desc" },
   });
 
-  const pantryItems = await prisma.pantryItem.findMany({
-    where: { userId: session.user.id },
-    select: { ingredientId: true },
-  });
+  const recipeIds = favorites.map((f) => f.recipeId);
+
+  const [pantryItems, reviewStats, cookStats] = await Promise.all([
+    prisma.pantryItem.findMany({
+      where: { userId: session.user.id },
+      select: { ingredientId: true },
+    }),
+    recipeIds.length
+      ? prisma.recipeReview.groupBy({
+          by: ["recipeId"],
+          where: { recipeId: { in: recipeIds } },
+          _avg: { rating: true },
+          _count: { rating: true },
+        })
+      : Promise.resolve([]),
+    recipeIds.length
+      ? prisma.cookLog.groupBy({
+          by: ["recipeId"],
+          where: { userId: session.user.id, recipeId: { in: recipeIds } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
   const ownedIds = new Set(pantryItems.map((p) => p.ingredientId));
+  const reviewMap = new Map(
+    reviewStats.map((r) => [
+      r.recipeId,
+      { averageRating: r._avg.rating ?? 0, reviewCount: r._count.rating },
+    ])
+  );
+  const cookMap = new Map(cookStats.map((c) => [c.recipeId, c._count._all]));
 
   const result = favorites.map((f) => {
     const required = f.recipe.recipeIngredients;
     const owned = required.filter((ri) => ownedIds.has(ri.ingredientId));
     const matchScore =
       required.length === 0 ? 100 : Math.round((owned.length / required.length) * 100);
-    return { ...f.recipe, savedAt: f.savedAt, matchScore, isFavorite: true };
+    const reviews = reviewMap.get(f.recipeId);
+    return {
+      ...f.recipe,
+      savedAt: f.savedAt,
+      matchScore,
+      isFavorite: true,
+      averageRating: reviews?.averageRating ?? null,
+      reviewCount: reviews?.reviewCount ?? 0,
+      cookCount: cookMap.get(f.recipeId) ?? 0,
+    };
   });
 
   return NextResponse.json(result);

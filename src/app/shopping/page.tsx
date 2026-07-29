@@ -3,12 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import {
-  ShoppingCart, Plus, Trash2, Check, Share2, Copy, RefreshCw,
-  ListPlus, Store, X, Link2Off,
-} from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import Link from "next/link";
+import { BrandLogo } from "@/components/BrandLogo";
 
 interface ShoppingListMeta {
   id: string;
@@ -33,32 +29,111 @@ interface ShoppingListDetail extends ShoppingListMeta {
   items: ShoppingItem[];
 }
 
+interface PantryItem {
+  id: string;
+  quantityNote?: string | null;
+  ingredient: { id: string; name: string; category: string };
+}
+
+interface MealPlanEntry {
+  plannedDate: string;
+  mealSlot: string;
+  recipe: { title: string };
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   produce: "Produce",
-  dairy: "Dairy",
+  dairy: "Dairy & Chilled",
   protein: "Protein",
   spice: "Spices",
   grains: "Grains",
   condiments: "Condiments",
   legumes: "Legumes",
   household: "Household",
-  other: "Other",
+  other: "Pantry",
 };
 
-const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS);
+const CATEGORY_ICONS: Record<string, string> = {
+  produce: "psychiatry",
+  dairy: "kitchen",
+  protein: "egg",
+  spice: "spa",
+  grains: "grain",
+  condiments: "water_drop",
+  legumes: "eco",
+  household: "home",
+  other: "inventory_2",
+};
+
+const CATEGORY_ORDER = [
+  "produce",
+  "dairy",
+  "protein",
+  "grains",
+  "spice",
+  "condiments",
+  "legumes",
+  "household",
+  "other",
+];
+
+const BASKET_IMG =
+  "https://lh3.googleusercontent.com/aida-public/AB6AXuCVV6rg_S3YKpWIHdTJ3DbHSTY4O4uIP-gow3CyiVHIYFRLMVU862HJiQ7PuOTlSbb-PsPN6WDoVDtftGY2oN_DmbZxoInTtgKM03VUxYFtiQwfO5xqiZHeM35Kmlg1XuQHFauaqHWZCHLBos0L9lYKkIArQ_Fjjcmc27DP9m7GSDZhokecX_qhPVCIRIjV6hKMNOcrQx62riEbItn702Q_1xBw6I11BV8J7GDKam6rQ0heugX_jv3dDpXZX3CRBLn_Ge9642NVb-U";
+
+function parseQty(q?: string | null): number {
+  if (!q) return 1;
+  const n = parseInt(q, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function formatQty(n: number): string {
+  return String(Math.max(1, n));
+}
 
 export default function ShoppingPage() {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [newItem, setNewItem] = useState("");
-  const [newQuantity, setNewQuantity] = useState("");
-  const [isCustom, setIsCustom] = useState(false);
-  const [storeMode, setStoreMode] = useState(false);
-  const [newListName, setNewListName] = useState("");
-  const [showNewList, setShowNewList] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Budget estimate state
+  const [budget, setBudget] = useState("");
+  const [budgetResult, setBudgetResult] = useState<{
+    items: Array<{ name: string; estimatedCost: string; cheaperAlternative: string | null }>;
+    totalEstimate: string;
+    currency: string;
+    overBudget: boolean;
+    budgetTip: string | null;
+  } | null>(null);
+  const [budgetLoading, setBudgetLoading] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
+
+  const handleBudgetEstimate = async () => {
+    if (!list?.items || list.items.length === 0) return;
+    setBudgetLoading(true);
+    try {
+      const res = await fetch("/api/ai/budget-estimate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: list.items.filter((i) => !i.isChecked).map((i) => ({
+            displayName: i.displayName,
+            quantity: i.quantity,
+          })),
+          budget: budget ? parseFloat(budget) : undefined,
+        }),
+      });
+      const data = await res.json();
+      setBudgetResult(data);
+      setShowBudget(true);
+    } catch {
+      // silent
+    } finally {
+      setBudgetLoading(false);
+    }
+  };
 
   const { data: lists = [] } = useQuery<ShoppingListMeta[]>({
     queryKey: ["shopping-lists"],
@@ -76,7 +151,31 @@ export default function ShoppingPage() {
     queryKey: ["shopping-list", activeListId],
     queryFn: () => fetch(`/api/shopping-lists?id=${activeListId}`).then((r) => r.json()),
     enabled: !!session && !!activeListId,
-    refetchInterval: storeMode ? 4000 : false,
+  });
+
+  const { data: pantryItems = [] } = useQuery<PantryItem[]>({
+    queryKey: ["pantry"],
+    queryFn: async () => {
+      const res = await fetch("/api/pantry");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!session,
+  });
+
+  const { data: mealEntries = [] } = useQuery<MealPlanEntry[]>({
+    queryKey: ["meal-plan-shopping-suggestions"],
+    queryFn: async () => {
+      const weekStart = new Date();
+      const day = weekStart.getDay();
+      const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1);
+      weekStart.setDate(diff);
+      weekStart.setHours(0, 0, 0, 0);
+      const res = await fetch(`/api/meal-plan?weekStart=${weekStart.toISOString()}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!session,
   });
 
   const mutate = useMutation({
@@ -94,14 +193,7 @@ export default function ShoppingPage() {
       queryClient.invalidateQueries({ queryKey: ["shopping-lists"] });
       queryClient.invalidateQueries({ queryKey: ["shopping-list"] });
       if (vars.action === "share" && data.url) {
-        const url = `${window.location.origin}${data.url}`;
-        setShareUrl(url);
-      }
-      if (vars.action === "unshare") setShareUrl(null);
-      if (vars.action === "create-list" && data.id) {
-        setActiveListId(data.id);
-        setShowNewList(false);
-        setNewListName("");
+        setShareUrl(`${window.location.origin}${data.url}`);
       }
     },
   });
@@ -109,6 +201,8 @@ export default function ShoppingPage() {
   const items = list?.items || [];
   const checkedCount = items.filter((i) => i.isChecked).length;
   const totalCount = items.length;
+  const completionPct =
+    totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
 
   const grouped = useMemo(() => {
     const map: Record<string, ShoppingItem[]> = {};
@@ -120,351 +214,544 @@ export default function ShoppingPage() {
     return CATEGORY_ORDER.filter((c) => map[c]?.length).map((c) => [c, map[c]] as const);
   }, [items]);
 
-  const addItem = () => {
-    if (!newItem.trim() || !activeListId) return;
-    mutate.mutate({
-      action: "add",
-      listId: activeListId,
-      name: newItem.trim(),
-      quantity: newQuantity || undefined,
-      custom: isCustom,
-    });
+  const listNames = useMemo(
+    () => new Set(items.map((i) => i.displayName.toLowerCase())),
+    [items]
+  );
+
+  const smartSuggestions = useMemo(() => {
+    const suggestions: Array<{
+      name: string;
+      subtitle: string;
+      icon: string;
+      iconBg: string;
+      iconColor: string;
+    }> = [];
+
+    for (const p of pantryItems) {
+      if (p.quantityNote !== "running low" && p.quantityNote !== "a little") continue;
+      const name = p.ingredient.name;
+      if (listNames.has(name.toLowerCase())) continue;
+      suggestions.push({
+        name,
+        subtitle: "Running low in pantry",
+        icon: "opacity",
+        iconBg: "bg-primary/10",
+        iconColor: "text-primary",
+      });
+      if (suggestions.length >= 3) break;
+    }
+
+    if (suggestions.length < 3 && mealEntries.length > 0) {
+      const recipeTitle = mealEntries[0]?.recipe?.title;
+      const candidates = ["eggs", "milk", "butter", "onion", "garlic", "spinach", "basil"];
+      for (const c of candidates) {
+        if (listNames.has(c) || suggestions.some((s) => s.name === c)) continue;
+        suggestions.push({
+          name: c.charAt(0).toUpperCase() + c.slice(1),
+          subtitle: recipeTitle ? `Needed for: ${recipeTitle}` : "From your meal plan",
+          icon: c === "eggs" ? "egg" : "eco",
+          iconBg: "bg-terracotta/10",
+          iconColor: "text-terracotta",
+        });
+        if (suggestions.length >= 3) break;
+      }
+    }
+
+    return suggestions.slice(0, 3);
+  }, [pantryItems, mealEntries, listNames]);
+
+  const addItem = (name?: string) => {
+    const value = (name ?? newItem).trim();
+    if (!value || !activeListId) return;
+    mutate.mutate({ action: "add", listId: activeListId, name: value });
     setNewItem("");
-    setNewQuantity("");
   };
 
-  const copyShare = async () => {
-    if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const updateQuantity = (id: string, delta: number) => {
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    const next = Math.max(1, parseQty(item.quantity) + delta);
+    mutate.mutate({ action: "update", id, quantity: formatQty(next) });
+  };
+
+  const handlePrint = () => window.print();
+
+  const handleShare = () => {
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return;
+    }
+    if (activeListId) mutate.mutate({ action: "share", id: activeListId });
   };
 
   if (!session) {
     return (
-      <div className="text-center py-20">
-        <ShoppingCart className="w-16 h-16 text-gray-200 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold text-gray-600 mb-2">Sign in to manage shopping lists</h2>
-        <Link href="/auth/signin"><Button>Sign in</Button></Link>
+      <div className="relative min-h-[70vh] flex items-center justify-center px-6 py-16">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
+        <div className="relative text-center max-w-md">
+          <BrandLogo className="w-16 h-16 mx-auto mb-6 object-contain" />
+          <span className="font-label-md text-terracotta uppercase tracking-widest mb-2 block">
+            Weekly Provisions
+          </span>
+          <h2 className="font-headline-lg text-headline-lg text-on-surface mb-3">
+            Sign in to manage shopping lists
+          </h2>
+          <Link
+            href="/auth/signin"
+            className="inline-flex px-10 py-3 bg-primary text-on-primary rounded-full font-label-md"
+          >
+            Sign in
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={`mx-auto ${storeMode ? "max-w-xl" : "max-w-3xl"}`}>
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <ShoppingCart className="w-6 h-6 text-orange-500" />
-            Shopping Lists
-          </h1>
-          {totalCount > 0 && (
-            <p className="text-sm text-gray-500 mt-0.5">
-              {checkedCount}/{totalCount} checked · {list?.name}
-            </p>
-          )}
+    <div className="relative bg-background text-on-background font-body-md print:pb-0">
+      {/* Hero */}
+      <section className="relative px-6 lg:px-16 py-16 overflow-hidden print:hidden">
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 bg-terracotta/5 rounded-full blur-3xl" />
+        <div className="max-w-[1280px] mx-auto relative z-10">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-10">
+            <div className="space-y-2">
+              <span className="font-label-md text-terracotta tracking-widest uppercase">
+                Weekly Provisions
+              </span>
+              <h1 className="font-display-lg text-[40px] md:text-display-lg text-on-background max-w-2xl leading-tight">
+                Gathering the <span className="text-primary italic">essentials</span> for your
+                kitchen.
+              </h1>
+              {lists.length > 1 && (
+                <div className="flex flex-wrap gap-2 pt-4">
+                  {lists.map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => setActiveListId(l.id)}
+                      className={`px-4 py-1.5 rounded-full text-label-sm transition-colors ${
+                        activeListId === l.id
+                          ? "bg-primary text-on-primary"
+                          : "bg-surface-container-high text-on-surface-variant hover:bg-surface-variant"
+                      }`}
+                    >
+                      {l.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="flex items-center gap-1 px-6 py-3 bg-primary text-on-primary rounded-full font-label-md shadow-md hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                <span className="material-symbols-outlined text-[20px]">print</span>
+                Print List
+              </button>
+              <button
+                type="button"
+                onClick={handleShare}
+                className="flex items-center gap-1 px-6 py-3 bg-surface-container text-on-surface-variant rounded-full font-label-md hover:bg-surface-container-high transition-colors"
+              >
+                <span className="material-symbols-outlined text-[20px]">share</span>
+                {copied ? "Copied!" : "Share"}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            variant={storeMode ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => setStoreMode(!storeMode)}
-          >
-            <Store className="w-3.5 h-3.5" />
-            {storeMode ? "Exit store mode" : "Store mode"}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => mutate.mutate({ action: "generate", listId: activeListId })}
-            loading={mutate.isPending && mutate.variables?.action === "generate"}
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            From meal plan
-          </Button>
+      </section>
+
+      <div className="max-w-[1280px] mx-auto w-full px-6 lg:px-16 grid grid-cols-1 lg:grid-cols-12 gap-16 pb-16">
+        {/* Sidebar */}
+        <aside className="lg:col-span-4 space-y-10 order-2 lg:order-1 print:hidden">
+          <div className="bg-surface-warm rounded-3xl p-10 space-y-6 shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+              <span className="material-symbols-outlined text-[64px] text-primary">auto_awesome</span>
+            </div>
+            <div className="space-y-1 relative z-10">
+              <h2 className="font-headline-md text-headline-md text-on-surface">Smart Add</h2>
+              <p className="font-body-md text-on-surface-variant/80">
+                Based on your pantry history and upcoming recipes.
+              </p>
+            </div>
+            <div className="space-y-3 relative z-10">
+              {smartSuggestions.length === 0 ? (
+                <p className="text-label-md text-on-surface-variant">
+                  Your list looks complete — or add items from your meal plan.
+                </p>
+              ) : (
+                smartSuggestions.map((s) => (
+                  <div
+                    key={s.name}
+                    className="flex items-center justify-between p-3 bg-white/60 backdrop-blur-md rounded-2xl hover:bg-white transition-all border border-transparent hover:border-primary/10"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-10 h-10 rounded-full ${s.iconBg} flex items-center justify-center shrink-0`}
+                      >
+                        <span className={`material-symbols-outlined ${s.iconColor} text-[20px]`}>
+                          {s.icon}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-label-md text-on-surface capitalize truncate">{s.name}</p>
+                        <p className="font-label-sm text-on-surface-variant/60 truncate">
+                          {s.subtitle}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addItem(s.name)}
+                      className="w-8 h-8 rounded-full border border-primary/20 text-primary flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shrink-0"
+                      aria-label={`Add ${s.name}`}
+                    >
+                      <span className="material-symbols-outlined text-[18px]">add</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => mutate.mutate({ action: "generate", listId: activeListId })}
+              disabled={mutate.isPending}
+              className="relative z-10 w-full py-3 rounded-full border border-primary/20 text-primary font-label-md hover:bg-primary/5 transition-colors"
+            >
+              Refresh from meal plan
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <label className="font-label-md text-on-surface-variant px-2">Quick Add Item</label>
+            <div className="relative flex items-center">
+              <input
+                className="w-full bg-surface-container-low rounded-full px-6 py-4 text-body-md outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-on-surface-variant/40"
+                placeholder="e.g. Maldon Sea Salt..."
+                type="text"
+                value={newItem}
+                onChange={(e) => setNewItem(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addItem()}
+              />
+              <button
+                type="button"
+                onClick={() => addItem()}
+                disabled={!newItem.trim()}
+                className="absolute right-2 w-10 h-10 bg-charcoal text-on-primary rounded-full flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
+              >
+                <span className="material-symbols-outlined">subdirectory_arrow_right</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Budget Estimator */}
+          <div className="bg-surface-container-low rounded-3xl p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary">savings</span>
+              <h3 className="font-title-lg text-on-surface">Budget Estimator</h3>
+            </div>
+            <p className="text-label-sm text-on-surface-variant">
+              AI estimates costs and flags cheaper alternatives.
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">$</span>
+                <input
+                  type="number"
+                  placeholder="Budget (optional)"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  className="w-full pl-7 pr-3 py-2.5 rounded-full bg-white border border-outline-variant/30 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleBudgetEstimate}
+                disabled={budgetLoading || !list?.items?.length}
+                className="px-5 py-2.5 bg-primary text-on-primary rounded-full font-label-md hover:scale-105 active:scale-95 transition-all disabled:opacity-50 text-sm"
+              >
+                {budgetLoading ? "…" : "Estimate"}
+              </button>
+            </div>
+
+            {showBudget && budgetResult && (
+              <div className="space-y-2">
+                <div className={`flex items-center justify-between py-2 px-4 rounded-xl ${
+                  budgetResult.overBudget ? "bg-error/10" : "bg-sage/10"
+                }`}>
+                  <span className="font-label-md text-on-surface">Est. Total</span>
+                  <span className={`font-headline-md ${budgetResult.overBudget ? "text-error" : "text-primary"}`}>
+                    ${budgetResult.totalEstimate}
+                    {budgetResult.overBudget && " ⚠️"}
+                  </span>
+                </div>
+                {budgetResult.budgetTip && (
+                  <div className="bg-terracotta/5 rounded-xl px-3 py-2 text-label-sm text-on-surface">
+                    💡 {budgetResult.budgetTip}
+                  </div>
+                )}
+                {budgetResult.items.some((i) => i.cheaperAlternative) && (
+                  <div className="space-y-1">
+                    <p className="text-label-sm text-on-surface-variant uppercase tracking-wider">Cheaper options:</p>
+                    {budgetResult.items
+                      .filter((i) => i.cheaperAlternative)
+                      .map((item, idx) => (
+                        <div key={idx} className="text-label-sm text-on-surface bg-white rounded-xl px-3 py-2">
+                          <span className="capitalize font-medium">{item.name}</span>
+                          <span className="text-on-surface-variant"> → </span>
+                          <span className="text-primary">{item.cheaperAlternative}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowBudget(false)}
+                  className="w-full text-label-sm text-on-surface-variant hover:text-on-surface"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-primary p-10 rounded-3xl text-on-primary relative overflow-hidden">
+            <div className="relative z-10 space-y-6">
+              <div className="flex justify-between items-center">
+                <span className="font-label-md uppercase tracking-wider opacity-80">
+                  List Completion
+                </span>
+                <span className="font-headline-md">{completionPct}%</span>
+              </div>
+              <div className="w-full bg-white/20 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-white h-full transition-all duration-1000 ease-out"
+                  style={{ width: `${completionPct}%` }}
+                />
+              </div>
+              <p className="font-body-md opacity-90 italic">
+                &quot;A organized kitchen is a happy heart.&quot;
+              </p>
+            </div>
+            <svg
+              className="absolute bottom-0 right-0 w-32 h-32 opacity-10 -mb-8 -mr-8"
+              viewBox="0 0 100 100"
+            >
+              <circle
+                cx="50"
+                cy="50"
+                r="40"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeDasharray="10 5"
+              />
+            </svg>
+          </div>
+        </aside>
+
+        {/* List */}
+        <div className="lg:col-span-8 space-y-16 order-1 lg:order-2">
+          {isLoading ? (
+            <div className="space-y-8">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="space-y-4 animate-pulse">
+                  <div className="h-6 bg-surface-variant rounded-lg w-1/3 mx-auto" />
+                  <div className="h-20 bg-surface-container-low rounded-2xl" />
+                  <div className="h-20 bg-surface-container-low rounded-2xl" />
+                </div>
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-16 bg-surface-container-low rounded-3xl">
+              <span className="material-symbols-outlined text-[48px] text-on-surface-variant opacity-40 mb-4 block">
+                shopping_cart
+              </span>
+              <p className="font-body-lg text-on-surface-variant mb-2">This list is empty.</p>
+              <p className="text-label-md text-on-surface-variant">
+                <Link href="/meal-plan" className="text-primary hover:underline">
+                  Generate from meal plan
+                </Link>{" "}
+                or use Quick Add.
+              </p>
+            </div>
+          ) : (
+            grouped.map(([category, categoryItems]) => (
+              <div key={category} className="space-y-6">
+                <div className="flex items-center gap-6">
+                  <div className="h-px flex-1 bg-surface-container-highest" />
+                  <h3 className="font-headline-md text-primary flex items-center gap-3 whitespace-nowrap">
+                    <span className="material-symbols-outlined">
+                      {CATEGORY_ICONS[category] || "inventory_2"}
+                    </span>
+                    {CATEGORY_LABELS[category] || category}
+                  </h3>
+                  <div className="h-px flex-1 bg-surface-container-highest" />
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  {categoryItems.map((item) => (
+                    <ShoppingListRow
+                      key={item.id}
+                      item={item}
+                      onToggle={() => mutate.mutate({ action: "toggle", id: item.id })}
+                      onDelete={() => mutate.mutate({ action: "delete", id: item.id })}
+                      onQtyChange={(delta) => updateQuantity(item.id, delta)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* List switcher */}
-      {!storeMode && (
-        <div className="flex gap-2 mb-5 flex-wrap items-center">
-          {lists.map((l) => (
-            <button
-              key={l.id}
-              onClick={() => setActiveListId(l.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                activeListId === l.id
-                  ? "bg-orange-500 text-white border-orange-500"
-                  : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"
+      {/* Floating basket */}
+      {totalCount > 0 && (
+        <div className="fixed bottom-8 right-8 hidden xl:block z-20 group print:hidden">
+          <div className="relative w-32 h-32 flex items-center justify-center">
+            <div className="absolute inset-0 bg-primary/10 rounded-full blur-xl group-hover:scale-125 transition-transform duration-500" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              className="w-24 h-24 object-contain relative z-10 drop-shadow-xl group-hover:-translate-y-2 transition-transform duration-500"
+              alt="Shopping basket"
+              src={BASKET_IMG}
+            />
+            <div className="absolute -top-2 -right-2 bg-terracotta text-on-primary w-8 h-8 rounded-full flex items-center justify-center text-label-sm font-bold shadow-lg">
+              {totalCount - checkedCount}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <footer className="w-full bg-surface-container-low py-10 mt-8 print:hidden">
+        <div className="max-w-[1280px] mx-auto px-6 lg:px-16 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-2">
+            <BrandLogo className="h-6 w-6 object-contain" muted />
+            <span className="text-label-md text-on-surface-variant">
+              What&apos;s for Dinner © {new Date().getFullYear()}
+            </span>
+          </div>
+          <div className="flex gap-6">
+            <Link className="text-label-sm text-on-surface-variant hover:text-primary" href="/recipes">
+              Recipes
+            </Link>
+            <Link className="text-label-sm text-on-surface-variant hover:text-primary" href="/meal-plan">
+              Meal Plan
+            </Link>
+            <Link className="text-label-sm text-on-surface-variant hover:text-primary" href="/pantry">
+              Pantry
+            </Link>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function ShoppingListRow({
+  item,
+  onToggle,
+  onDelete,
+  onQtyChange,
+}: {
+  item: ShoppingItem;
+  onToggle: () => void;
+  onDelete: () => void;
+  onQtyChange: (delta: number) => void;
+}) {
+  const qty = parseQty(item.quantity);
+  const subtitle =
+    item.pantryHint === "have_some"
+      ? "You have some — might need more"
+      : item.pantryHint === "in_pantry"
+      ? "Already in pantry"
+      : item.source === "meal_plan"
+      ? "From meal plan"
+      : item.quantity && !/^\d+$/.test(item.quantity)
+      ? item.quantity
+      : null;
+
+  return (
+    <div
+      className={`group flex items-center justify-between p-6 rounded-3xl transition-all ${
+        item.isChecked
+          ? "bg-surface-container-low/50 shadow-none"
+          : "bg-white shadow-sm hover:shadow-md"
+      }`}
+    >
+      <div className="flex items-center gap-6 flex-1 min-w-0">
+        <label className="relative flex items-center cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            className="peer sr-only"
+            checked={item.isChecked}
+            onChange={onToggle}
+          />
+          <div className="w-6 h-6 rounded-md border-2 border-primary/20 peer-checked:bg-primary peer-checked:border-primary transition-all flex items-center justify-center">
+            <span
+              className={`material-symbols-outlined text-white text-[18px] ${
+                item.isChecked ? "opacity-100" : "opacity-0"
               }`}
             >
-              {l.name}
-              {l._count && (
-                <span className="ml-1.5 opacity-70">({l._count.items})</span>
-              )}
+              check
+            </span>
+          </div>
+        </label>
+        <div className={`flex flex-col min-w-0 ${item.isChecked ? "opacity-40" : ""}`}>
+          <span
+            className={`font-body-lg text-on-surface capitalize ${
+              item.isChecked ? "line-through" : ""
+            }`}
+          >
+            {item.displayName}
+          </span>
+          {subtitle && (
+            <span className="font-label-sm text-on-surface-variant/60">{subtitle}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-6 shrink-0">
+        <div
+          className={`flex items-center bg-surface-container-low rounded-full p-1 ${
+            item.isChecked ? "opacity-40" : ""
+          }`}
+        >
+          {!item.isChecked && (
+            <button
+              type="button"
+              onClick={() => onQtyChange(-1)}
+              disabled={qty <= 1}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white transition-colors text-on-surface-variant disabled:opacity-30"
+            >
+              -
             </button>
-          ))}
-          <button
-            onClick={() => setShowNewList(true)}
-            className="px-3 py-2 rounded-xl text-sm border border-dashed border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600 flex items-center gap-1"
-          >
-            <ListPlus className="w-4 h-4" />
-            New list
-          </button>
-        </div>
-      )}
-
-      {showNewList && (
-        <div className="flex gap-2 mb-4">
-          <input
-            value={newListName}
-            onChange={(e) => setNewListName(e.target.value)}
-            placeholder='e.g. "Monthly stock-up"'
-            className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            autoFocus
-          />
-          <Button
-            size="sm"
-            onClick={() => mutate.mutate({ action: "create-list", name: newListName || "New list" })}
-          >
-            Create
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setShowNewList(false)}>
-            Cancel
-          </Button>
-        </div>
-      )}
-
-      {/* Progress */}
-      {totalCount > 0 && (
-        <div className="mb-5">
-          <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-green-500 rounded-full transition-all duration-500"
-              style={{ width: `${(checkedCount / totalCount) * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Share + actions */}
-      {!storeMode && activeListId && (
-        <div className="flex flex-wrap gap-2 mb-5">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => mutate.mutate({ action: "share", id: activeListId })}
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            Share list
-          </Button>
-          {list?.shareToken && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => mutate.mutate({ action: "unshare", id: activeListId })}
-            >
-              <Link2Off className="w-3.5 h-3.5" />
-              Stop sharing
-            </Button>
           )}
-          {checkedCount > 0 && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-500"
-              onClick={() => mutate.mutate({ action: "clear-checked", listId: activeListId })}
+          <span className="px-3 font-label-md text-on-surface min-w-[2ch] text-center">{qty}</span>
+          {!item.isChecked && (
+            <button
+              type="button"
+              onClick={() => onQtyChange(1)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white transition-colors text-on-surface-variant"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              Clear checked
-            </Button>
-          )}
-          {lists.length > 1 && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-500 ml-auto"
-              onClick={() => {
-                if (confirm("Delete this list?")) {
-                  mutate.mutate({ action: "delete-list", id: activeListId });
-                  setActiveListId(null);
-                }
-              }}
-            >
-              Delete list
-            </Button>
+              +
+            </button>
           )}
         </div>
-      )}
-
-      {shareUrl && (
-        <div className="mb-5 p-3 rounded-xl bg-blue-50 border border-blue-100 flex items-center gap-2">
-          <input
-            readOnly
-            value={shareUrl}
-            className="flex-1 bg-transparent text-sm text-blue-800 outline-none"
-          />
-          <Button size="sm" variant="secondary" onClick={copyShare}>
-            <Copy className="w-3.5 h-3.5" />
-            {copied ? "Copied" : "Copy"}
-          </Button>
-          <button onClick={() => setShareUrl(null)} className="p-1 text-blue-400 hover:text-blue-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Add item */}
-      {!storeMode && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-          <div className="flex gap-2 flex-wrap">
-            <input
-              type="text"
-              placeholder={isCustom ? "Paper towels, dish soap…" : "Add ingredient…"}
-              value={newItem}
-              onChange={(e) => setNewItem(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addItem()}
-              className="flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
-            <input
-              type="text"
-              placeholder="Qty"
-              value={newQuantity}
-              onChange={(e) => setNewQuantity(e.target.value)}
-              className="w-20 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
-            <Button onClick={addItem} size="sm" disabled={!newItem.trim()}>
-              <Plus className="w-4 h-4" />
-            </Button>
-          </div>
-          <label className="mt-3 flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isCustom}
-              onChange={(e) => setIsCustom(e.target.checked)}
-              className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
-            />
-            Non-food / household item (not linked to pantry)
-          </label>
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>This list is empty.</p>
-          <p className="text-sm mt-1">
-            <Link href="/meal-plan" className="text-orange-500 hover:underline">
-              Generate from meal plan
-            </Link>{" "}
-            or add items above.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {grouped.map(([category, categoryItems]) => (
-            <div key={category}>
-              {!storeMode && (
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  {CATEGORY_LABELS[category] || category}{" "}
-                  <span className="font-normal text-gray-400">({categoryItems.length})</span>
-                </h3>
-              )}
-              <div className="space-y-2">
-                {categoryItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() =>
-                      mutate.mutate({ action: "toggle", id: item.id })
-                    }
-                    className={`w-full flex items-center gap-3 rounded-xl border text-left transition-all ${
-                      storeMode ? "p-4 min-h-[64px]" : "p-3"
-                    } ${
-                      item.isChecked
-                        ? "bg-gray-50 border-gray-100 opacity-60"
-                        : "bg-white border-gray-200 hover:border-orange-200 active:scale-[0.99]"
-                    }`}
-                  >
-                    <span
-                      className={`shrink-0 flex items-center justify-center rounded-lg border-2 transition-colors ${
-                        storeMode ? "w-8 h-8" : "w-6 h-6"
-                      } ${
-                        item.isChecked
-                          ? "bg-green-500 border-green-500 text-white"
-                          : "border-gray-300"
-                      }`}
-                    >
-                      {item.isChecked && <Check className={storeMode ? "w-5 h-5" : "w-3.5 h-3.5"} />}
-                    </span>
-
-                    <div className="flex-1 min-w-0">
-                      <span
-                        className={`font-medium capitalize block ${
-                          storeMode ? "text-base" : "text-sm"
-                        } ${item.isChecked ? "line-through text-gray-400" : "text-gray-800"}`}
-                      >
-                        {item.displayName}
-                      </span>
-                      <div className="flex flex-wrap gap-2 mt-0.5">
-                        {item.quantity && (
-                          <span className="text-xs text-gray-400">{item.quantity}</span>
-                        )}
-                        {item.pantryHint === "have_some" && (
-                          <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                            You have some — might need more
-                          </span>
-                        )}
-                        {item.pantryHint === "in_pantry" && (
-                          <span className="text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
-                            In pantry
-                          </span>
-                        )}
-                        {item.source === "meal_plan" && !storeMode && (
-                          <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
-                            meal plan
-                          </span>
-                        )}
-                        {storeMode && (
-                          <span className="text-xs text-gray-400 capitalize">
-                            {CATEGORY_LABELS[item.category] || item.category}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {!storeMode && (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          mutate.mutate({ action: "delete", id: item.id });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.stopPropagation();
-                            mutate.mutate({ action: "delete", id: item.id });
-                          }
-                        }}
-                        className="shrink-0 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={onDelete}
+          className="text-on-surface-variant/30 hover:text-error transition-colors print:hidden"
+          aria-label="Delete item"
+        >
+          <span className="material-symbols-outlined">delete</span>
+        </button>
+      </div>
     </div>
   );
 }

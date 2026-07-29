@@ -27,8 +27,9 @@ model User {
   cookLog           CookLog[]
   mealPlanEntries   MealPlanEntry[]
   groceryItems      GroceryListItem[]
-  shoppingLists     ShoppingList[]
-  reviews           RecipeReview[]
+  shoppingLists       ShoppingList[]
+  leftoverContainers  LeftoverContainer[]
+  reviews             RecipeReview[]
   submittedRecipes  Recipe[]           @relation("SubmittedRecipes")
   adminActions      AdminAction[]
 }
@@ -116,8 +117,26 @@ model Recipe {
   recipeIngredients RecipeIngredient[]
   favorites         Favorite[]
   cookLog           CookLog[]
-  mealPlanEntries   MealPlanEntry[]
-  reviews           RecipeReview[]
+  mealPlanEntries     MealPlanEntry[]
+  leftoverContainers  LeftoverContainer[]
+  reviews             RecipeReview[]
+}
+
+model LeftoverContainer {
+  id           String    @id @default(cuid())
+  userId       String
+  name         String
+  imageUrl     String?
+  storedAt     DateTime  @default(now())
+  expiresAt    DateTime?
+  servings     Int?
+  tags         String[]  @default([])
+  recipeId     String?
+  aiSuggestion String?
+  consumedAt   DateTime?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe? @relation(fields: [recipeId], references: [id], onDelete: SetNull)
 }
 
 model RecipeIngredient {

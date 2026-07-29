@@ -213,6 +213,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(item);
   }
 
+  if (action === "update") {
+    const existing = await prisma.shoppingListItem.findFirst({
+      where: { id: body.id, shoppingList: { userId: user!.id } },
+    });
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const item = await prisma.shoppingListItem.update({
+      where: { id: body.id },
+      data: {
+        ...(body.quantity !== undefined ? { quantity: body.quantity || null } : {}),
+        ...(body.isChecked !== undefined ? { isChecked: body.isChecked } : {}),
+      },
+      include: { ingredient: true },
+    });
+    return NextResponse.json(item);
+  }
+
   if (action === "delete") {
     await prisma.shoppingListItem.deleteMany({
       where: { id: body.id, shoppingList: { userId: user!.id } },

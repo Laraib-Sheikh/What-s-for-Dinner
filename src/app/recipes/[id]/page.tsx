@@ -69,6 +69,47 @@ export default function RecipeDetailPage() {
   const [cookMode, setCookMode] = useState(false);
   const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
 
+  // AI Remix state
+  const [showRemixPanel, setShowRemixPanel] = useState(false);
+  const [remixInstruction, setRemixInstruction] = useState("");
+  const [remixResult, setRemixResult] = useState<{
+    title: string;
+    description: string;
+    remixNote: string;
+    cookTimeMinutes: number;
+    ingredients: Array<{ name: string; quantity: string; isOptional: boolean }>;
+    instructions: Array<{ step_number: number; text: string }>;
+  } | null>(null);
+  const [remixLoading, setRemixLoading] = useState(false);
+
+  const REMIX_PRESETS = [
+    "Make it vegetarian",
+    "Make it spicier",
+    "Make it vegan",
+    "Make it gluten-free",
+    "Halve the cook time",
+    "Make it kid-friendly",
+  ];
+
+  const handleRemix = async (instruction: string) => {
+    if (!instruction.trim() || !id) return;
+    setRemixLoading(true);
+    setRemixResult(null);
+    try {
+      const res = await fetch("/api/ai/recipe-remix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipeId: id, instruction }),
+      });
+      const data = await res.json();
+      if (!data.error) setRemixResult(data);
+    } catch {
+      // silent fail
+    } finally {
+      setRemixLoading(false);
+    }
+  };
+
   const { data: recipe, isLoading } = useQuery<RecipeDetail>({
     queryKey: ["recipe", id],
     queryFn: () => fetch(`/api/recipes/${id}`).then((r) => r.json()),
@@ -256,10 +297,106 @@ export default function RecipeDetailPage() {
                 <BookOpen className="w-4 h-4" />
                 Plan
               </Button>
+              <Button variant="outline" onClick={() => setShowRemixPanel(!showRemixPanel)}>
+                <Sparkles className="w-4 h-4" />
+                AI Remix
+              </Button>
             </>
           )}
         </div>
       </div>
+
+      {/* AI Remix Panel */}
+      {showRemixPanel && (
+        <div className="mb-6 bg-gradient-to-br from-primary/5 to-terracotta/5 rounded-2xl p-6 border border-primary/10">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h3 className="font-semibold text-gray-900">AI Recipe Remix</h3>
+            <span className="text-sm text-gray-500 ml-1">— transform this recipe with AI</span>
+          </div>
+
+          {/* Preset buttons */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {REMIX_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => { setRemixInstruction(preset); handleRemix(preset); }}
+                className="px-4 py-1.5 bg-white border border-primary/20 text-primary rounded-full text-sm hover:bg-primary hover:text-white transition-all"
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom input */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={remixInstruction}
+              onChange={(e) => setRemixInstruction(e.target.value)}
+              placeholder="Custom: e.g. 'add more vegetables' or 'reduce calories'..."
+              onKeyDown={(e) => e.key === "Enter" && handleRemix(remixInstruction)}
+              className="flex-1 px-4 py-2 rounded-full bg-white border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <Button onClick={() => handleRemix(remixInstruction)} loading={remixLoading}>
+              <Sparkles className="w-4 h-4" />
+              Remix
+            </Button>
+          </div>
+
+          {/* Remix result */}
+          {remixLoading && (
+            <div className="mt-4 text-center text-sm text-gray-500 animate-pulse">
+              AI is remixing your recipe…
+            </div>
+          )}
+
+          {remixResult && !remixLoading && (
+            <div className="mt-4 bg-white rounded-xl p-5 border border-primary/10">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <h4 className="font-bold text-gray-900 text-lg">{remixResult.title}</h4>
+                <span className="text-sm text-gray-500 shrink-0">{remixResult.cookTimeMinutes}min</span>
+              </div>
+              {remixResult.description && (
+                <p className="text-gray-600 text-sm mb-3">{remixResult.description}</p>
+              )}
+              {remixResult.remixNote && (
+                <div className="bg-primary/5 text-primary px-3 py-2 rounded-lg text-sm mb-3">
+                  <strong>What changed:</strong> {remixResult.remixNote}
+                </div>
+              )}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <h5 className="font-semibold text-gray-700 mb-2 text-sm">Remixed Ingredients</h5>
+                  <ul className="space-y-1">
+                    {remixResult.ingredients.map((ing, i) => (
+                      <li key={i} className="text-sm text-gray-600 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary/40 shrink-0" />
+                        {ing.quantity && <span className="font-medium">{ing.quantity}</span>} {ing.name}
+                        {ing.isOptional && <span className="text-gray-400">(opt)</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h5 className="font-semibold text-gray-700 mb-2 text-sm">Remixed Steps</h5>
+                  <ol className="space-y-1">
+                    {remixResult.instructions.slice(0, 4).map((step) => (
+                      <li key={step.step_number} className="text-sm text-gray-600">
+                        <span className="font-medium text-primary">{step.step_number}.</span> {step.text}
+                      </li>
+                    ))}
+                    {remixResult.instructions.length > 4 && (
+                      <li className="text-sm text-gray-400">…and {remixResult.instructions.length - 4} more steps</li>
+                    )}
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Meta */}
       <div className="flex flex-wrap items-center gap-4 mb-6">

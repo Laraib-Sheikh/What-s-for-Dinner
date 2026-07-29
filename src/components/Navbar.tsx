@@ -4,18 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
-  ChefHat, ShoppingBasket, Calendar, Heart, BookOpen, User, LogOut, LogIn,
-  ShoppingCart, Shield, Leaf,
+  ShoppingBasket, Calendar, Heart, BookOpen, User, LogOut, LogIn,
+  ShoppingCart, Shield, Leaf, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const navLinks = [
-  { href: "/", label: "Recipes", icon: BookOpen },
+  { href: "/recipes", label: "Recipes", icon: BookOpen },
   { href: "/pantry", label: "Pantry", icon: ShoppingBasket },
   { href: "/meal-plan", label: "Meal Plan", icon: Calendar },
   { href: "/shopping", label: "Shopping", icon: ShoppingCart },
   { href: "/leftovers", label: "Leftovers", icon: Leaf },
   { href: "/favorites", label: "Favorites", icon: Heart },
+  { href: "/nutrition", label: "Nutrition", icon: Activity },
 ];
 
 export function Navbar() {
@@ -31,8 +33,8 @@ export function Navbar() {
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-2">
-          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-orange-600 shrink-0">
-            <ChefHat className="w-7 h-7" />
+          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-primary shrink-0">
+            <BrandLogo className="h-8 w-8 object-contain" />
             <span className="hidden sm:block">What&apos;s for Dinner</span>
             <span className="sm:hidden">WFD</span>
           </Link>
@@ -45,7 +47,7 @@ export function Navbar() {
                   href={href}
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors shrink-0",
-                    pathname === href
+                    pathname === href || (href !== "/" && pathname.startsWith(href))
                       ? "bg-orange-50 text-orange-700"
                       : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                   )}
