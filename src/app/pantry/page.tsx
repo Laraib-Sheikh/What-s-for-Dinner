@@ -655,7 +655,7 @@ export default function PantryPage() {
                       const available =
                         cat === "all" ||
                         pantryItems.some((p) => p.ingredient.category === cat);
-                      if (!available && cat !== "all") return null;
+                      if (!available) return null;
                       const active = categoryFilter === cat;
                       return (
                         <button

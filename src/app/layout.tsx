@@ -34,7 +34,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className={`${plusJakarta.variable} ${plusJakarta.className} bg-oat-milk min-h-screen text-on-surface`}>
+      <body suppressHydrationWarning className={`${plusJakarta.variable} ${plusJakarta.className} bg-oat-milk min-h-screen text-on-surface`}>
         <SessionProvider>
           <QueryProvider>
             <AppShell>{children}</AppShell>
